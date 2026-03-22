@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Soil Analysis Webmap</title>
+  <link rel="icon" type="image/png" href="./favicon.png" />
+  <link rel="stylesheet" href="https://js.arcgis.com/4.32/esri/themes/light/main.css" />
+  <script src="https://js.arcgis.com/4.32/"></script>
+  <style>
+    html, body, #viewDiv { margin: 0; padding: 0; height: 100%; width: 100%; }
+    body { box-sizing: border-box; }
+    #appContainer { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+    #toolbox { display: flex; flex-direction: row; align-items: center; background: #fff; border-bottom: 1px solid #ccc; padding: 4px 8px; gap: 8px; z-index: 10; height: 44px; min-height: 36px; max-height: 48px; box-shadow: 0 2px 4px rgba(0,0,0,0.03); position: relative; }
+    #toolbox button { background: #f8f8f8; border: 1px solid #ccc; border-radius: 4px; padding: 6px 14px; font-size: 14px; cursor: pointer; transition: background 0.2s; }
+    #toolbox button.active, #toolbox button:focus { background: #e0eaff; border-color: #7dafff; outline: none; }
+    #mainContent { flex: 1; display: flex; flex-direction: row; min-height: 0; min-width: 0; }
+    #viewDiv { flex: 1; min-width: 0; min-height: 0; position: relative; z-index: 1; }
+    #manipulator { width: 420px; max-width: 90vw; background: #fff; border-left: 1px solid #ccc; box-shadow: -2px 0 6px rgba(0,0,0,0.04); display: flex; flex-direction: column; align-items: stretch; padding: 0; z-index: 10; min-width: 300px; transition: width 0.3s ease, transform 0.3s ease; overflow-y: auto; transform: translateX(0); }
+    #manipulator.hidden { transform: translateX(100%); width: 0; min-width: 0; overflow: hidden; }
+    .tool-panel, .dialog-panel { display: none; flex: 0 0 auto; padding: 16px 14px 14px 14px; border-bottom: 1px solid #eee; background: #fff; }
+    .tool-panel.active, .dialog-panel.active { display: block; }
+    .dialog-panel { background: #f7faff; border-left: 4px solid #7dafff; margin-bottom: 8px; }
+    .panel-title { font-weight: bold; font-size: 16px; margin-bottom: 8px; color: #1a3a5b; }
+    @media (max-width: 900px) { #manipulator { width: 280px; min-width: 200px; } #toolbox { font-size: 13px; } }
+    #legendContainer { max-width: 100%; min-width: 250px; max-height: 350px; overflow-y: auto; overflow-x: auto; }
+    .legend-control-button { transition: all 0.2s ease; }
+    .legend-control-button:hover { opacity: 0.8; transform: translateY(-1px); }
+    .legend-control-button:active { transform: translateY(0); }
+    #toolbox button.loading { opacity: 0.6; pointer-events: none; position: relative; }
+    #toolbox button.loading::after { content: "⏳"; margin-left: 6px; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .state-layer-control { margin: 8px 0; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+    .state-layer-control label { display: flex; align-items: center; gap: 8px; font-weight: bold; cursor: pointer; }
+    .opacity-control { margin-top: 6px; margin-left: 24px; }
+    .opacity-control label { font-size: 11px; color: #555; }
+    .opacity-control input[type="range"] { width: 100%; }
+    .dropdown { position: relative; display: inline-block; }
+    .dropdown-content { display: none; position: absolute; background-color: #fff; min-width: 160px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); border: 1px solid #ccc; border-radius: 4px; z-index: 1000; top: 100%; margin-top: 4px; }
+    .dropdown-content a { color: #333; padding: 10px 16px; text-decoration: none; display: block; font-size: 14px; transition: background 0.2s; }
+    .dropdown-content a:hover { background-color: #f0f0f0; }
+    .dropdown.show .dropdown-content { display: block; }
+  </style>
+</head>
+<body>
+  <div id="appContainer">
+    <div id="toolbox">
+      <button id="measureButton">Measure</button>
+      <button id="legendToggleButton">Legend</button>
+      <button id="searchButton">Search</button>
+      <div class="dropdown">
+        <button id="bookmarksButton">Bookmarks ▼</button>
+        <div class="dropdown-content">
+          <a href="#" data-state="arizona">Arizona</a>
+          <a href="#" data-state="california">California</a>
+          <a href="#" data-state="florida">Florida</a>
+          <a href="#" data-state="texas">Texas</a>
+          <a href="#" data-state="utah">Utah</a>
+        </div>
+      </div>
+      <div class="dropdown">
+        <button id="soilViewButton">Soil View ▼</button>
+        <div class="dropdown-content">
+          <a href="#" data-soilcat="none">None</a>
+          <a href="#" data-soilcat="arizona">Arizona</a>
+          <a href="#" data-soilcat="california">California</a>
+          <a href="#" data-soilcat="florida">Florida</a>
+          <a href="#" data-soilcat="texas1">Texas 1 (Parts 1-2)</a>
+          <a href="#" data-soilcat="texas2">Texas 2 (Parts 3-5)</a>
+          <a href="#" data-soilcat="texas3">Texas 3 (Parts 6-7)</a>
+          <a href="#" data-soilcat="texas4">Texas 4 (Parts 8-10)</a>
+          <a href="#" data-soilcat="utah">Utah</a>
+        </div>
+      </div>
+    </div>
+    <div id="mainContent">
+      <div id="viewDiv"></div>
+      <div id="manipulator" class="hidden">
+        <div id="measurePanel" class="tool-panel">
+          <div class="panel-title">Measure</div>
+          <p>Click on the map to start measuring distance or area.</p>
+          <button id="distanceMeasureBtn" style="margin: 4px; padding: 8px 12px;">Distance</button>
+          <button id="areaMeasureBtn" style="margin: 4px; padding: 8px 12px;">Area</button>
+          <button id="clearMeasureBtn" style="margin: 4px; padding: 8px 12px;">Clear</button>
+        </div>
+        <div id="measureResultPanel" class="dialog-panel">
+          <div class="panel-title">Measurement Results</div>
+          <div id="measureResults"></div>
+        </div>
+
+        <div id="legendPanel" class="tool-panel">
+          <div class="panel-title">Legend</div>
+          <div id="legendContainer"></div>
+          <div id="soilCatTransparencyControl" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #ddd; display: none;">
+            <label style="font-size: 13px; color: #555; font-weight: 500; display: block; margin-bottom: 8px;">
+              Soil Category Layer Transparency: <span id="soilCatTransparencyValue">50%</span>
+            </label>
+            <input type="range" id="soilCatTransparencySlider" min="0" max="100" value="50" 
+                   style="width: 100%; cursor: pointer;" />
+          </div>
+        </div>
+        <div id="searchPanel" class="tool-panel">
+          <div class="panel-title">Search</div>
+          <div id="searchWidget"></div>
+        </div>
+        <div id="controlsPanel" class="tool-panel active">
+          <div class="panel-title">Polygon Controls</div>
+          <div id="transparencyControl" style="margin-top: 8px;">
+            <label style="font-size: 13px; color: #555; font-weight: 500; display: block; margin-bottom: 8px;">
+              Polygon Transparency: <span id="transparencyValue">70%</span>
+            </label>
+            <input type="range" id="transparencySlider" min="0" max="100" value="70" 
+                   style="width: 100%; cursor: pointer;" />
+            <div style="margin-top: 12px; display: flex; gap: 8px;">
+              <button id="selectButton" style="flex: 1; padding: 8px 12px; background: #0079c1; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;">Select</button>
+              <button id="clearButton" style="flex: 1; padding: 8px 12px; background: #d83020; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;">Clear</button>
+            </div>
+          </div>
+          <div id="soilCharacteristics" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #ddd; display: none;">
+            <div style="font-size: 14px; font-weight: bold; color: #333; text-align: center; margin-bottom: 12px;">
+              Soil Category: <span id="soilCategory">-</span>
+            </div>
+            <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
+              <thead>
+                <tr style="background-color: #f0f0f0;">
+                  <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-weight: 600;">0-100cm Soil Characteristics</th>
+                  <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-weight: 600;">100-150cm Soil Characteristics</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Texture: <span id="texture_0_100">-</span></td>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Texture: <span id="texture_100_150">-</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Total Sand: <span id="sand_pct_100">-</span>%</td>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Total Sand: <span id="sand_pct_150">-</span>%</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Coarse Sand: <span id="coarse_sandpct_100">-</span>%</td>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Coarse Sand: <span id="coarse_sandpct_150">-</span>%</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Medium Sand: <span id="medium_sandpct_100">-</span>%</td>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Medium Sand: <span id="medium_sandpct_150">-</span>%</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Fine Sand: <span id="fine_sandpct_100">-</span>%</td>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Fine Sand: <span id="fine_sandpct_150">-</span>%</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Silt: <span id="silt_pct_100">-</span>%</td>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Silt: <span id="silt_pct_150">-</span>%</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Clay: <span id="clay_pct_100">-</span>%</td>
+                  <td style="padding: 6px 8px; border: 1px solid #ddd;">Clay: <span id="clay_pct_150">-</span>%</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="margin-top: 12px;">
+              <button id="copyButton" style="width: 100%; padding: 8px 12px; background: #107C10; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;">Copy Results</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    require([
+      "esri/Map", "esri/views/MapView", "esri/layers/GeoJSONLayer", 
+      "esri/widgets/ScaleBar", "esri/widgets/BasemapToggle", 
+      "esri/widgets/DistanceMeasurement2D", "esri/widgets/AreaMeasurement2D",
+      "esri/widgets/Legend", "esri/widgets/Search", "esri/Graphic"
+    ], function (
+      EsriMap, MapView, GeoJSONLayer, ScaleBar, BasemapToggle,
+      DistanceMeasurement2D, AreaMeasurement2D, Legend, Search, Graphic
+    ) {
+      
+      // Simple renderer for soil polygons
+      const soilRenderer = {
+        type: "simple",
+        symbol: {
+          type: "simple-fill",
+          color: [139, 90, 43, 0.3],  // Brown with low transparency
+          outline: {
+            color: [80, 50, 25, 0.5],
+            width: 0.5
+          }
+        }
+      };
+
+      // Soil category renderer with unique values by Category field
+      let soilCatOpacity = 0.5;
+      function createSoilCategoryRenderer() {
+        return {
+          type: "unique-value",
+          field: "Category",
+          uniqueValueInfos: [
+            {
+              value: "Category 1",
+              symbol: {
+                type: "simple-fill",
+                color: [152, 230, 0, soilCatOpacity],  // #98E600 green
+                outline: {
+                  color: [100, 150, 0, 0.8],
+                  width: 0.5
+                }
+              }
+            },
+            {
+              value: "Category 2",
+              symbol: {
+                type: "simple-fill",
+                color: [0, 197, 255, soilCatOpacity],  // #00C5FF cyan
+                outline: {
+                  color: [0, 120, 180, 0.8],
+                  width: 0.5
+                }
+              }
+            },
+            {
+              value: "Category 3",
+              symbol: {
+                type: "simple-fill",
+                color: [230, 0, 0, soilCatOpacity],  // #E60000 red
+                outline: {
+                  color: [150, 0, 0, 0.8],
+                  width: 0.5
+                }
+              }
+            }
+          ]
+        };
+      }
+
+      // Neon green highlight symbol (opacity controlled by slider)
+      let polygonOpacity = 0.7;
+      const highlightSymbol = {
+        type: "simple-fill",
+        color: [57, 255, 20, polygonOpacity],  // Neon green with transparency
+        outline: {
+          color: [0, 255, 0, 1],
+          width: 2
+        }
+      };
+
+      // Popup template for soil polygons
+      const soilPopupTemplate = {
+        title: "Soil Information - {state}",
+        content: [{
+          type: "fields",
+          fieldInfos: []  // Will be populated when features are loaded
+        }]
+      };
+
+      // Create map
+      const map = new EsriMap({ basemap: "topo-vector" });
+      
+      // Tile index and loaded tiles tracking
+      let moveMode = false;  // Track if in move mode
+      let mapClickHandler = null;  // Track map click event handler
+      let tileIndex = null;
+      const loadedTiles = new Map();  // Track loaded tiles by file path
+      const loadingTiles = new Set();  // Track currently loading tiles
+      let highlightGraphic = null;  // Track highlighted polygon
+      let currentSoilCatLayers = [];  // Track current soil category layers (array for multi-part states)
+
+      // Function to load tile index
+      async function loadTileIndex() {
+        try {
+          const response = await fetch('./soil_tile_index.json');
+          tileIndex = await response.json();
+          console.log(`Loaded tile index with ${tileIndex.tiles.length} tiles`);
+        } catch (error) {
+          console.error('Error loading tile index:', error);
+        }
+      }
+
+      // Function to find tiles that intersect with a bounding box
+      function findIntersectingTiles(lon, lat, bufferDegrees = 0.25) {
+        if (!tileIndex) return [];
+        
+        const searchBounds = {
+          minLon: lon - bufferDegrees,
+          maxLon: lon + bufferDegrees,
+          minLat: lat - bufferDegrees,
+          maxLat: lat + bufferDegrees
+        };
+
+        return tileIndex.tiles.filter(tile => {
+          // Check if tile bounds intersect with search bounds
+          return !(tile.bounds.maxLon < searchBounds.minLon ||
+                   tile.bounds.minLon > searchBounds.maxLon ||
+                   tile.bounds.maxLat < searchBounds.minLat ||
+                   tile.bounds.minLat > searchBounds.maxLat);
+        });
+      }
+
+      // Function to load a tile
+      async function loadTile(tileInfo) {
+        const filePath = `./${tileInfo.file}`;
+        
+        // Skip if already loaded or currently loading
+        if (loadedTiles.has(filePath) || loadingTiles.has(filePath)) {
+          return loadedTiles.get(filePath);
+        }
+
+        loadingTiles.add(filePath);
+        console.log(`Loading tile: ${tileInfo.state} - ${tileInfo.tileId}`);
+
+        try {
+          const layer = new GeoJSONLayer({
+            url: filePath,
+            title: `${tileInfo.state} - Tile ${tileInfo.tileId}`,
+            renderer: soilRenderer,
+            popupTemplate: soilPopupTemplate,
+            visible: false  // Keep layers invisible - we only use them for querying
+          });
+
+          await layer.load();
+          // Don't add to map - we'll just query it
+          loadedTiles.set(filePath, layer);
+          loadingTiles.delete(filePath);
+          console.log(`Successfully loaded: ${filePath}`);
+          return layer;
+        } catch (error) {
+          console.error(`Error loading tile ${filePath}:`, error);
+          loadingTiles.delete(filePath);
+          return null;
+        }
+      }
+
+      // Function to populate soil characteristics display
+      function populateSoilCharacteristics(feature) {
+        const attrs = feature.attributes;
+        
+        // Populate category
+        document.getElementById('soilCategory').textContent = attrs.Category || '-';
+        
+        // Populate 0-100cm characteristics
+        document.getElementById('texture_0_100').textContent = attrs.Texture_0_100 || '-';
+        document.getElementById('sand_pct_100').textContent = attrs.sand_pct_100 !== null && attrs.sand_pct_100 !== undefined ? attrs.sand_pct_100 : '-';
+        document.getElementById('coarse_sandpct_100').textContent = attrs.coarse_sandpct_100 !== null && attrs.coarse_sandpct_100 !== undefined ? attrs.coarse_sandpct_100 : '-';
+        document.getElementById('medium_sandpct_100').textContent = attrs.medium_sandpct_100 !== null && attrs.medium_sandpct_100 !== undefined ? attrs.medium_sandpct_100 : '-';
+        document.getElementById('fine_sandpct_100').textContent = attrs.fine_sandpct_100 !== null && attrs.fine_sandpct_100 !== undefined ? attrs.fine_sandpct_100 : '-';
+        document.getElementById('silt_pct_100').textContent = attrs.silt_pct_100 !== null && attrs.silt_pct_100 !== undefined ? attrs.silt_pct_100 : '-';
+        document.getElementById('clay_pct_100').textContent = attrs.clay_pct_100 !== null && attrs.clay_pct_100 !== undefined ? attrs.clay_pct_100 : '-';
+        
+        // Populate 100-150cm characteristics
+        document.getElementById('texture_100_150').textContent = attrs.Texture_100_150 || '-';
+        document.getElementById('sand_pct_150').textContent = attrs.sand_pct_150 !== null && attrs.sand_pct_150 !== undefined ? attrs.sand_pct_150 : '-';
+        document.getElementById('coarse_sandpct_150').textContent = attrs.coarse_sandpct_150 !== null && attrs.coarse_sandpct_150 !== undefined ? attrs.coarse_sandpct_150 : '-';
+        document.getElementById('medium_sandpct_150').textContent = attrs.medium_sandpct_150 !== null && attrs.medium_sandpct_150 !== undefined ? attrs.medium_sandpct_150 : '-';
+        document.getElementById('fine_sandpct_150').textContent = attrs.fine_sandpct_150 !== null && attrs.fine_sandpct_150 !== undefined ? attrs.fine_sandpct_150 : '-';
+        document.getElementById('silt_pct_150').textContent = attrs.silt_pct_150 !== null && attrs.silt_pct_150 !== undefined ? attrs.silt_pct_150 : '-';
+        document.getElementById('clay_pct_150').textContent = attrs.clay_pct_150 !== null && attrs.clay_pct_150 !== undefined ? attrs.clay_pct_150 : '-';
+        
+        // Show the soil characteristics section
+        document.getElementById('soilCharacteristics').style.display = 'block';
+      }
+
+      // Function to highlight polygon at specific location
+      async function highlightPolygonAtLocation(lon, lat) {
+        // Remove previous highlight
+        if (highlightGraphic) {
+          view.graphics.remove(highlightGraphic);
+          highlightGraphic = null;
+        }
+
+        // Query loaded layers to find polygon containing the point
+        const point = {
+          type: "point",
+          longitude: lon,
+          latitude: lat,
+          spatialReference: { wkid: 4326 }
+        };
+
+        for (const layer of loadedTiles.values()) {
+          if (!layer.loaded) continue;
+
+          const query = layer.createQuery();
+          query.geometry = point;
+          query.spatialRelationship = "intersects";
+          query.outFields = ["*"];
+          query.returnGeometry = true;
+
+          try {
+            const result = await layer.queryFeatures(query);
+            if (result.features.length > 0) {
+              // Found the polygon - highlight it
+              const feature = result.features[0];
+              highlightGraphic = new Graphic({
+                geometry: feature.geometry,
+                symbol: highlightSymbol
+              });
+              view.graphics.add(highlightGraphic);
+              
+              // Bring the search pin to the front (above the polygon)
+              if (searchWidget.resultGraphic) {
+                const searchGraphic = searchWidget.resultGraphic;
+                view.graphics.remove(searchGraphic);
+                view.graphics.add(searchGraphic);
+              }
+              
+              // Populate and show soil characteristics
+              populateSoilCharacteristics(feature);
+
+              console.log('Highlighted polygon at search location');
+              return;
+            }
+          } catch (error) {
+            console.error('Error querying layer:', error);
+          }
+        }
+
+        console.log('No polygon found at exact search location');
+      }
+
+      // Function to load tiles for a location
+      async function loadTilesForLocation(lon, lat, bufferDegrees = 0.25) {
+        const tilesToLoad = findIntersectingTiles(lon, lat, bufferDegrees);
+        console.log(`Found ${tilesToLoad.length} tiles to load for location [${lon}, ${lat}]`);
+
+        if (tilesToLoad.length === 0) {
+          alert('No soil data available for this location.');
+          return;
+        }
+
+        // Show loading indicator
+        const searchButton = document.getElementById('searchButton');
+        searchButton.classList.add('loading');
+        searchButton.textContent = 'Loading Tiles...';
+
+        // Load tiles in parallel (but limit concurrent loads)
+        const maxConcurrent = 5;
+        for (let i = 0; i < tilesToLoad.length; i += maxConcurrent) {
+          const batch = tilesToLoad.slice(i, i + maxConcurrent);
+          await Promise.all(batch.map(tile => loadTile(tile)));
+        }
+
+        // Reset button
+        searchButton.classList.remove('loading');
+        searchButton.textContent = 'Search';
+
+        console.log(`Loaded ${loadedTiles.size} total tiles`);
+
+        // Highlight the specific polygon at the search location
+        await highlightPolygonAtLocation(lon, lat);
+      }
+
+      // Create map view centered on United States
+      const view = new MapView({
+        container: "viewDiv",
+        map: map,
+        center: [-98.5795, 39.8283],  // Center of USA
+        zoom: 4
+      });
+
+      // Add widgets
+      view.ui.add(new ScaleBar({ view, unit: "metric" }), "bottom-left");
+      view.ui.add(new BasemapToggle({ view, nextBasemap: "hybrid" }), "top-left");
+
+      const distanceMeasurement2D = new DistanceMeasurement2D({ view, visible: false });
+      const areaMeasurement2D = new AreaMeasurement2D({ view, visible: false });
+      view.ui.add(distanceMeasurement2D, "top-right");
+      view.ui.add(areaMeasurement2D, "top-right");
+
+      // Create Search widget with custom red pin for results
+      const searchWidget = new Search({
+        view: view,
+        container: "searchWidget",
+        popupEnabled: false,
+        includeDefaultSources: true
+      });
+
+      // Listen for search completions to load relevant tiles
+      searchWidget.on("select-result", function(event) {
+        // Update the result graphic to use red pin after it's created
+        if (searchWidget.resultGraphic) {
+          searchWidget.resultGraphic.symbol = {
+            type: "picture-marker",
+            url: "https://static.arcgis.com/images/Symbols/Shapes/RedPin1LargeB.png",
+            width: "32px",
+            height: "32px",
+            yoffset: "16px"
+          };
+        }
+
+        if (event.result && event.result.feature) {
+          const geometry = event.result.feature.geometry;
+          const lon = geometry.longitude || geometry.x;
+          const lat = geometry.latitude || geometry.y;
+          
+          console.log(`Search completed at: [${lon}, ${lat}]`);
+          loadTilesForLocation(lon, lat);
+        }
+      });
+
+      // Watch for when the result graphic is added and change its symbol
+      searchWidget.watch("resultGraphic", function(graphic) {
+        if (graphic) {
+          graphic.symbol = {
+            type: "picture-marker",
+            url: "https://static.arcgis.com/images/Symbols/Shapes/RedPin1LargeB.png",
+            width: "32px",
+            height: "32px",
+            yoffset: "16px"
+          };
+        }
+      });
+
+      // Create Legend widget
+      const legend = new Legend({
+        view: view,
+        container: "legendContainer"
+      });
+
+      // Load tile index on startup
+      loadTileIndex();
+
+      // Panel management
+      let activePanel = null;
+      const panels = {
+        measure: document.getElementById('measurePanel'),
+        legend: document.getElementById('legendPanel'),
+        search: document.getElementById('searchPanel')
+      };
+
+      const buttons = {
+        measure: document.getElementById('measureButton'),
+        legend: document.getElementById('legendToggleButton'),
+        search: document.getElementById('searchButton')
+      };
+
+      function closeAllPanels() {
+        Object.values(panels).forEach(panel => panel.classList.remove('active'));
+        Object.values(buttons).forEach(btn => btn.classList.remove('active'));
+        document.getElementById('manipulator').classList.add('hidden');
+        activePanel = null;
+      }
+
+      function openPanel(panelName) {
+        if (activePanel === panelName) {
+          closeAllPanels();
+          return;
+        }
+        closeAllPanels();
+        panels[panelName].classList.add('active');
+        buttons[panelName].classList.add('active');
+        document.getElementById('manipulator').classList.remove('hidden');
+        activePanel = panelName;
+      }
+
+      // Button event listeners
+      buttons.measure.addEventListener('click', () => openPanel('measure'));
+      buttons.legend.addEventListener('click', () => openPanel('legend'));
+      buttons.search.addEventListener('click', () => openPanel('search'));
+
+      // Bookmarks dropdown
+      const bookmarksButton = document.getElementById('bookmarksButton');
+      const dropdown = bookmarksButton.parentElement;
+      
+      // State coordinates for zoom
+      const stateCoordinates = {
+        arizona: { center: [-111.6602, 34.2744], zoom: 7 },
+        california: { center: [-119.4179, 36.7783], zoom: 6 },
+        florida: { center: [-81.5158, 27.6648], zoom: 7 },
+        texas: { center: [-99.9018, 31.9686], zoom: 6 },
+        utah: { center: [-111.0937, 39.3210], zoom: 7 }
+      };
+      
+      // Toggle dropdown on button click
+      bookmarksButton.addEventListener('click', function(e) {
+        e.stopPropagation();
+        dropdown.classList.toggle('show');
+      });
+      
+      // Close dropdown when clicking outside
+      document.addEventListener('click', function(e) {
+        if (!dropdown.contains(e.target)) {
+          dropdown.classList.remove('show');
+        }
+      });
+      
+      // Handle state selection
+      document.querySelectorAll('.dropdown-content a[data-state]').forEach(link => {
+        link.addEventListener('click', function(e) {
+          e.preventDefault();
+          const state = this.getAttribute('data-state');
+          const coords = stateCoordinates[state];
+          
+          if (coords) {
+            view.goTo({
+              center: coords.center,
+              zoom: coords.zoom
+            });
+          }
+          
+          dropdown.classList.remove('show');
+        });
+      });
+
+      // Soil View dropdown
+      const soilViewButton = document.getElementById('soilViewButton');
+      const soilViewDropdown = soilViewButton.parentElement;
+      
+      // Toggle dropdown on button click
+      soilViewButton.addEventListener('click', function(e) {
+        e.stopPropagation();
+        soilViewDropdown.classList.toggle('show');
+      });
+      
+      // Close dropdown when clicking outside
+      document.addEventListener('click', function(e) {
+        if (!soilViewDropdown.contains(e.target) && !dropdown.contains(e.target)) {
+          soilViewDropdown.classList.remove('show');
+          dropdown.classList.remove('show');
+        }
+      });
+      
+      // Function to load soil category layer
+      async function loadSoilCategoryLayer(stateName) {
+        // Remove existing layers from map and memory
+        if (currentSoilCatLayers.length > 0) {
+          currentSoilCatLayers.forEach(layer => {
+            map.remove(layer);
+            layer.destroy();
+          });
+          currentSoilCatLayers = [];
+        }
+        
+        if (stateName === 'none') {
+          document.getElementById('soilCatTransparencyControl').style.display = 'none';
+          return;
+        }
+        
+        // Define configuration for each state/region
+        const stateConfig = {
+          arizona: { displayName: 'Arizona', parts: [1] },
+          california: { displayName: 'California', parts: [1, 2, 3, 4] },
+          florida: { displayName: 'Florida', parts: [1] },
+          texas1: { displayName: 'Texas', parts: [1, 2] },
+          texas2: { displayName: 'Texas', parts: [3, 4, 5] },
+          texas3: { displayName: 'Texas', parts: [6, 7] },
+          texas4: { displayName: 'Texas', parts: [8, 9, 10] },
+          utah: { displayName: 'Utah', parts: [1] }
+        };
+        
+        const config = stateConfig[stateName];
+        if (!config) return;
+        
+        const stateCapitalized = config.displayName;
+        const partsToLoad = config.parts;
+        const isMultiPart = partsToLoad.length > 1;
+        
+        // Show loading message
+        const soilViewButton = document.getElementById('soilViewButton');
+        const originalText = soilViewButton.textContent;
+        soilViewButton.textContent = 'Loading...';
+        soilViewButton.disabled = true;
+        
+        try {
+          const popupTemplate = {
+            title: "Soil Category - {Category}",
+            content: [{
+              type: "fields",
+              fieldInfos: [
+                { fieldName: "Category", label: "Category" },
+                { fieldName: "Texture_0_100", label: "Texture (0-100cm)" },
+                { fieldName: "Texture_100_150", label: "Texture (100-150cm)" },
+                { fieldName: "sand_pct_100", label: "Total Sand % (0-100cm)" },
+                { fieldName: "sand_pct_150", label: "Total Sand % (100-150cm)" },
+                { fieldName: "clay_pct_100", label: "Clay % (0-100cm)" },
+                { fieldName: "clay_pct_150", label: "Clay % (100-150cm)" }
+              ]
+            }]
+          };
+          
+          if (isMultiPart) {
+            // Load multiple parts
+            console.log(`Loading ${stateName.toUpperCase()} - parts ${partsToLoad.join(', ')}...`);
+            
+            const layerPromises = [];
+            for (const partNum of partsToLoad) {
+              const filePath = `./Soil_Cat/${stateCapitalized}_soil_cat_part${partNum}.geojson`;
+              
+              const layerPromise = new GeoJSONLayer({
+                url: filePath,
+                title: `${stateCapitalized} Soil Categories (Part ${partNum})`,
+                renderer: createSoilCategoryRenderer(),
+                popupTemplate: popupTemplate,
+                visible: true
+              }).load();
+              
+              layerPromises.push(layerPromise);
+            }
+            
+            // Load all parts in parallel
+            const layers = await Promise.all(layerPromises);
+            
+            // Add all layers to map
+            layers.forEach(layer => {
+              map.add(layer);
+              currentSoilCatLayers.push(layer);
+            });
+            
+            console.log(`Loaded ${stateName.toUpperCase()} - ${partsToLoad.length} parts successfully`);
+          } else {
+            // Load single file
+            const filePath = `./Soil_Cat/${stateCapitalized}_soil_cat.geojson`;
+            
+            const layer = new GeoJSONLayer({
+              url: filePath,
+              title: `${stateCapitalized} Soil Categories`,
+              renderer: createSoilCategoryRenderer(),
+              popupTemplate: popupTemplate,
+              visible: true
+            });
+            
+            await layer.load();
+            map.add(layer);
+            currentSoilCatLayers.push(layer);
+            
+            console.log(`Loaded soil category layer: ${stateCapitalized}`);
+          }
+          
+          // Show transparency control
+          document.getElementById('soilCatTransparencyControl').style.display = 'block';
+          
+          // Reset button
+          soilViewButton.textContent = originalText;
+          soilViewButton.disabled = false;
+        } catch (error) {
+          console.error(`Error loading soil category layer for ${stateCapitalized}:`, error);
+          
+          // Reset button
+          soilViewButton.textContent = originalText;
+          soilViewButton.disabled = false;
+          
+          alert(`Failed to load ${stateCapitalized} soil category layer. Check console for details.`);
+        }
+      }
+      
+      // Handle soil category selection
+      document.querySelectorAll('.dropdown-content a[data-soilcat]').forEach(link => {
+        link.addEventListener('click', function(e) {
+          e.preventDefault();
+          const state = this.getAttribute('data-soilcat');
+          loadSoilCategoryLayer(state);
+          soilViewDropdown.classList.remove('show');
+        });
+      });
+      
+      // Soil category transparency slider control
+      const soilCatTransparencySlider = document.getElementById('soilCatTransparencySlider');
+      const soilCatTransparencyValue = document.getElementById('soilCatTransparencyValue');
+      
+      soilCatTransparencySlider.addEventListener('input', function() {
+        const value = parseInt(this.value);
+        soilCatTransparencyValue.textContent = value + '%';
+        soilCatOpacity = value / 100;
+        
+        // Update the layer renderer for all loaded layers
+        if (currentSoilCatLayers.length > 0) {
+          currentSoilCatLayers.forEach(layer => {
+            layer.renderer = createSoilCategoryRenderer();
+          });
+        }
+      });
+
+      // Measurement tools
+      document.getElementById('distanceMeasureBtn').addEventListener('click', () => {
+        distanceMeasurement2D.visible = true;
+        areaMeasurement2D.visible = false;
+        distanceMeasurement2D.viewModel.start();
+      });
+
+      document.getElementById('areaMeasureBtn').addEventListener('click', () => {
+        areaMeasurement2D.visible = true;
+        distanceMeasurement2D.visible = false;
+        areaMeasurement2D.viewModel.start();
+      });
+
+      document.getElementById('clearMeasureBtn').addEventListener('click', () => {
+        distanceMeasurement2D.viewModel.clear();
+        areaMeasurement2D.viewModel.clear();
+        distanceMeasurement2D.visible = false;
+        areaMeasurement2D.visible = false;
+      });
+
+      // Transparency slider control
+      const transparencySlider = document.getElementById('transparencySlider');
+      const transparencyValue = document.getElementById('transparencyValue');
+      
+      transparencySlider.addEventListener('input', function() {
+        const value = parseInt(this.value);
+        transparencyValue.textContent = value + '%';
+        polygonOpacity = value / 100;
+        
+        // Update the highlight graphic if it exists
+        if (highlightGraphic) {
+          const geometry = highlightGraphic.geometry;
+          
+          // Remove old graphic
+          view.graphics.remove(highlightGraphic);
+          
+          // Create new graphic with updated transparency
+          highlightGraphic = new Graphic({
+            geometry: geometry,
+            symbol: {
+              type: "simple-fill",
+              color: [57, 255, 20, polygonOpacity],
+              outline: {
+                color: [0, 255, 0, 1],
+                width: 2
+              }
+            }
+          });
+          
+          // Add new graphic
+          view.graphics.add(highlightGraphic);
+          
+          // Keep search pin on top
+          if (searchWidget.resultGraphic) {
+            const searchGraphic = searchWidget.resultGraphic;
+            view.graphics.remove(searchGraphic);
+            view.graphics.add(searchGraphic);
+          }
+        }
+      });
+
+      // Select button - enable clicking on map to search new location
+      document.getElementById('selectButton').addEventListener('click', function() {
+        if (!moveMode) {
+          // Enable move mode
+          moveMode = true;
+          this.textContent = 'Click Map...';
+          this.style.background = '#ff8c00';
+          view.container.style.cursor = 'crosshair';
+          
+          // Add map click handler
+          mapClickHandler = view.on('click', async function(event) {
+            const lon = event.mapPoint.longitude;
+            const lat = event.mapPoint.latitude;
+            
+            console.log(`Manual location selected: [${lon}, ${lat}]`);
+            
+            // Clear graphics first
+            view.graphics.removeAll();
+            
+            // Load tiles for new location and highlight polygon
+            await loadTilesForLocation(lon, lat);
+            
+            // Add a pin at the clicked location (on top of polygon)
+            const clickGraphic = new Graphic({
+              geometry: event.mapPoint,
+              symbol: {
+                type: "picture-marker",
+                url: "https://static.arcgis.com/images/Symbols/Shapes/RedPin1LargeB.png",
+                width: "32px",
+                height: "32px",
+                yoffset: "16px"
+              }
+            });
+            view.graphics.add(clickGraphic);
+            
+            // Disable move mode
+            moveMode = false;
+          document.getElementById('selectButton').textContent = 'Select';
+          document.getElementById('selectButton').style.background = '#0079c1';
+            view.container.style.cursor = 'default';
+            mapClickHandler.remove();
+          });
+        } else {
+          // Cancel move mode
+          moveMode = false;
+          this.textContent = 'Select';
+          this.style.background = '#0079c1';
+          view.container.style.cursor = 'default';
+          if (mapClickHandler) {
+            mapClickHandler.remove();
+          }
+        }
+      });
+
+      // Copy button - copy soil characteristics to clipboard
+      document.getElementById('copyButton').addEventListener('click', function() {
+        const category = document.getElementById('soilCategory').textContent;
+        const texture_0_100 = document.getElementById('texture_0_100').textContent;
+        const texture_100_150 = document.getElementById('texture_100_150').textContent;
+        const sand_100 = document.getElementById('sand_pct_100').textContent;
+        const sand_150 = document.getElementById('sand_pct_150').textContent;
+        const coarse_100 = document.getElementById('coarse_sandpct_100').textContent;
+        const coarse_150 = document.getElementById('coarse_sandpct_150').textContent;
+        const medium_100 = document.getElementById('medium_sandpct_100').textContent;
+        const medium_150 = document.getElementById('medium_sandpct_150').textContent;
+        const fine_100 = document.getElementById('fine_sandpct_100').textContent;
+        const fine_150 = document.getElementById('fine_sandpct_150').textContent;
+        const silt_100 = document.getElementById('silt_pct_100').textContent;
+        const silt_150 = document.getElementById('silt_pct_150').textContent;
+        const clay_100 = document.getElementById('clay_pct_100').textContent;
+        const clay_150 = document.getElementById('clay_pct_150').textContent;
+
+        const copyText = `Soil Category: ${category}
+
+0-100cm Soil Characteristics:
+  Texture: ${texture_0_100}
+  Total Sand: ${sand_100}%
+  Coarse Sand: ${coarse_100}%
+  Medium Sand: ${medium_100}%
+  Fine Sand: ${fine_100}%
+  Silt: ${silt_100}%
+  Clay: ${clay_100}%
+
+100-150cm Soil Characteristics:
+  Texture: ${texture_100_150}
+  Total Sand: ${sand_150}%
+  Coarse Sand: ${coarse_150}%
+  Medium Sand: ${medium_150}%
+  Fine Sand: ${fine_150}%
+  Silt: ${silt_150}%
+  Clay: ${clay_150}%`;
+
+        navigator.clipboard.writeText(copyText).then(() => {
+          // Visual feedback
+          const btn = document.getElementById('copyButton');
+          const originalText = btn.textContent;
+          btn.textContent = 'Copied!';
+          btn.style.background = '#0078d4';
+          setTimeout(() => {
+            btn.textContent = originalText;
+            btn.style.background = '#107C10';
+          }, 1500);
+        }).catch(err => {
+          console.error('Failed to copy text: ', err);
+          alert('Failed to copy to clipboard');
+        });
+      });
+
+      // Clear button - remove all graphics and hide controls
+      document.getElementById('clearButton').addEventListener('click', function() {
+        // Remove all graphics
+        view.graphics.removeAll();
+        highlightGraphic = null;
+        
+        // Hide soil characteristics
+        document.getElementById('soilCharacteristics').style.display = 'none';
+        
+        // Cancel move mode if active
+        if (moveMode) {
+          moveMode = false;
+          document.getElementById('selectButton').textContent = 'Select';
+          document.getElementById('selectButton').style.background = '#0079c1';
+          view.container.style.cursor = 'default';
+          if (mapClickHandler) {
+            mapClickHandler.remove();
+          }
+        }
+        
+        console.log('Cleared all graphics');
+      });
+    });
+  </script>
+</body>
+</html>
