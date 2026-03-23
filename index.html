@@ -178,18 +178,13 @@
     ) {
       
       // Base URL configuration for GitHub
-      // When hosted on GitHub Pages, use relative paths
-      // When accessing directly from GitHub, use raw.githubusercontent.com
+      // Use raw.githubusercontent.com for GeoJSON files to avoid CORS and serving issues
       const BASE_URL = (() => {
         const hostname = window.location.hostname;
-        const pathname = window.location.pathname;
         
-        // If on GitHub Pages (username.github.io), use relative paths
-        if (hostname.includes('github.io')) {
-          // Extract the repo name from pathname (e.g., /Soil_identification/)
-          const repoMatch = pathname.match(/^\/([^\/]+)\//);
-          const repoPath = repoMatch ? `/${repoMatch[1]}` : '';
-          return repoPath;
+        // If on GitHub Pages or GitHub, use raw URLs for data files
+        if (hostname.includes('github.io') || hostname.includes('github.com')) {
+          return 'https://raw.githubusercontent.com/Link0923/Soil_identification/main';
         }
         
         // If running locally, use relative paths
@@ -197,7 +192,7 @@
           return '.';
         }
         
-        // Otherwise, use raw GitHub URLs
+        // Default to raw GitHub URLs
         return 'https://raw.githubusercontent.com/Link0923/Soil_identification/main';
       })();
       
