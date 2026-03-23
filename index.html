@@ -194,7 +194,7 @@
         // For GitHub hosting
         if (isRemote) {
           // LFS files: state folders and Soil_Cat contain large .geojson files
-          if (path.match(/\/(Arizona|California|Florida|Texas|Utah|Soil_Cat)\/.*\.geojson$/)) {
+          if (path.match(/^(Arizona|California|Florida|Texas|Utah|Soil_Cat)\/.*\.geojson$/)) {
             return `https://media.githubusercontent.com/media/Link0923/Soil_identification/main/${path}`;
           }
           // Regular files: use raw GitHub URLs
