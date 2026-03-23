@@ -177,26 +177,35 @@
       DistanceMeasurement2D, AreaMeasurement2D, Legend, Search, Graphic
     ) {
       
-      // Base URL configuration for GitHub
-      // GitHub LFS files must be accessed through media.githubusercontent.com
-      const BASE_URL = (() => {
-        const hostname = window.location.hostname;
-        
-        // If on GitHub Pages or GitHub, use LFS media URLs for data files
-        if (hostname.includes('github.io') || hostname.includes('github.com')) {
-          return 'https://media.githubusercontent.com/media/Link0923/Soil_identification/main';
-        }
-        
-        // If running locally, use relative paths
-        if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '') {
-          return '.';
-        }
-        
-        // Default to LFS media URLs
-        return 'https://media.githubusercontent.com/media/Link0923/Soil_identification/main';
-      })();
+      // URL configuration for GitHub
+      // LFS files (large GeoJSON) must use media.githubusercontent.com
+      // Regular files (JSON index, etc.) use raw.githubusercontent.com
+      const isRemote = window.location.hostname.includes('github.io') || 
+                       window.location.hostname.includes('github.com');
       
-      console.log('Base URL configured as:', BASE_URL);
+      function getFileUrl(path) {
+        // If running locally, use relative paths
+        if (window.location.hostname === 'localhost' || 
+            window.location.hostname === '127.0.0.1' || 
+            window.location.hostname === '') {
+          return `./${path}`;
+        }
+        
+        // For GitHub hosting
+        if (isRemote) {
+          // LFS files: state folders and Soil_Cat contain large .geojson files
+          if (path.match(/\/(Arizona|California|Florida|Texas|Utah|Soil_Cat)\/.*\.geojson$/)) {
+            return `https://media.githubusercontent.com/media/Link0923/Soil_identification/main/${path}`;
+          }
+          // Regular files: use raw GitHub URLs
+          return `https://raw.githubusercontent.com/Link0923/Soil_identification/main/${path}`;
+        }
+        
+        // Fallback to relative paths
+        return `./${path}`;
+      }
+      
+      console.log('URL resolver configured for', isRemote ? 'GitHub hosting' : 'local development');
       
       // Simple renderer for soil polygons
       const soilRenderer = {
@@ -290,7 +299,7 @@
       // Function to load tile index
       async function loadTileIndex() {
         try {
-          const response = await fetch(`${BASE_URL}/soil_tile_index.json`);
+          const response = await fetch(getFileUrl('soil_tile_index.json'));
           tileIndex = await response.json();
           console.log(`Loaded tile index with ${tileIndex.tiles.length} tiles`);
         } catch (error) {
@@ -320,7 +329,7 @@
 
       // Function to load a tile
       async function loadTile(tileInfo) {
-        const filePath = `${BASE_URL}/${tileInfo.file}`;
+        const filePath = getFileUrl(tileInfo.file);
         
         // Skip if already loaded or currently loading
         if (loadedTiles.has(filePath) || loadingTiles.has(filePath)) {
@@ -704,7 +713,7 @@
             
             const layerPromises = [];
             for (const partNum of partsToLoad) {
-              const filePath = `${BASE_URL}/Soil_Cat/${stateCapitalized}_soil_cat_part${partNum}.geojson`;
+              const filePath = getFileUrl(`Soil_Cat/${stateCapitalized}_soil_cat_part${partNum}.geojson`);
               
               const layerPromise = new GeoJSONLayer({
                 url: filePath,
@@ -729,7 +738,7 @@
             console.log(`Loaded ${stateName.toUpperCase()} - ${partsToLoad.length} parts successfully`);
           } else {
             // Load single file
-            const filePath = `${BASE_URL}/Soil_Cat/${stateCapitalized}_soil_cat.geojson`;
+            const filePath = getFileUrl(`Soil_Cat/${stateCapitalized}_soil_cat.geojson`);
             
             const layer = new GeoJSONLayer({
               url: filePath,
