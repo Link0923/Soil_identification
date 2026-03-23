@@ -178,13 +178,13 @@
     ) {
       
       // Base URL configuration for GitHub
-      // Use raw.githubusercontent.com for GeoJSON files to avoid CORS and serving issues
+      // GitHub LFS files must be accessed through media.githubusercontent.com
       const BASE_URL = (() => {
         const hostname = window.location.hostname;
         
-        // If on GitHub Pages or GitHub, use raw URLs for data files
+        // If on GitHub Pages or GitHub, use LFS media URLs for data files
         if (hostname.includes('github.io') || hostname.includes('github.com')) {
-          return 'https://raw.githubusercontent.com/Link0923/Soil_identification/main';
+          return 'https://media.githubusercontent.com/media/Link0923/Soil_identification/main';
         }
         
         // If running locally, use relative paths
@@ -192,8 +192,8 @@
           return '.';
         }
         
-        // Default to raw GitHub URLs
-        return 'https://raw.githubusercontent.com/Link0923/Soil_identification/main';
+        // Default to LFS media URLs
+        return 'https://media.githubusercontent.com/media/Link0923/Soil_identification/main';
       })();
       
       console.log('Base URL configured as:', BASE_URL);
