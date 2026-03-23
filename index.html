@@ -177,6 +177,32 @@
       DistanceMeasurement2D, AreaMeasurement2D, Legend, Search, Graphic
     ) {
       
+      // Base URL configuration for GitHub
+      // When hosted on GitHub Pages, use relative paths
+      // When accessing directly from GitHub, use raw.githubusercontent.com
+      const BASE_URL = (() => {
+        const hostname = window.location.hostname;
+        const pathname = window.location.pathname;
+        
+        // If on GitHub Pages (username.github.io), use relative paths
+        if (hostname.includes('github.io')) {
+          // Extract the repo name from pathname (e.g., /Soil_identification/)
+          const repoMatch = pathname.match(/^\/([^\/]+)\//);
+          const repoPath = repoMatch ? `/${repoMatch[1]}` : '';
+          return repoPath;
+        }
+        
+        // If running locally, use relative paths
+        if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '') {
+          return '.';
+        }
+        
+        // Otherwise, use raw GitHub URLs
+        return 'https://raw.githubusercontent.com/Link0923/Soil_identification/main';
+      })();
+      
+      console.log('Base URL configured as:', BASE_URL);
+      
       // Simple renderer for soil polygons
       const soilRenderer = {
         type: "simple",
@@ -269,7 +295,7 @@
       // Function to load tile index
       async function loadTileIndex() {
         try {
-          const response = await fetch('./soil_tile_index.json');
+          const response = await fetch(`${BASE_URL}/soil_tile_index.json`);
           tileIndex = await response.json();
           console.log(`Loaded tile index with ${tileIndex.tiles.length} tiles`);
         } catch (error) {
@@ -299,7 +325,7 @@
 
       // Function to load a tile
       async function loadTile(tileInfo) {
-        const filePath = `./${tileInfo.file}`;
+        const filePath = `${BASE_URL}/${tileInfo.file}`;
         
         // Skip if already loaded or currently loading
         if (loadedTiles.has(filePath) || loadingTiles.has(filePath)) {
@@ -683,7 +709,7 @@
             
             const layerPromises = [];
             for (const partNum of partsToLoad) {
-              const filePath = `./Soil_Cat/${stateCapitalized}_soil_cat_part${partNum}.geojson`;
+              const filePath = `${BASE_URL}/Soil_Cat/${stateCapitalized}_soil_cat_part${partNum}.geojson`;
               
               const layerPromise = new GeoJSONLayer({
                 url: filePath,
@@ -708,7 +734,7 @@
             console.log(`Loaded ${stateName.toUpperCase()} - ${partsToLoad.length} parts successfully`);
           } else {
             // Load single file
-            const filePath = `./Soil_Cat/${stateCapitalized}_soil_cat.geojson`;
+            const filePath = `${BASE_URL}/Soil_Cat/${stateCapitalized}_soil_cat.geojson`;
             
             const layer = new GeoJSONLayer({
               url: filePath,
